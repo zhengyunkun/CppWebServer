@@ -104,7 +104,7 @@ class httpConnection
         bool                linger;                             // 是否持续保持连接
         char*               fileAddress;
         struct stat         fileState;
-        struct iovec        iv[2];
+        struct iovec        iv[2];                              // iv用来管理缓冲区
         int                 ivCount;
         int                 cgi;
         char*               headString;                         // 存储请求头数据

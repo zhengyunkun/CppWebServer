@@ -470,6 +470,10 @@ httpConnection::HTTP_CODE httpConnection::doRequest()
     else strncpy(realFile + len, url, FILENAME_LEN - len - 1);
 
     // 通过stat获取请求资源文件信息，成功则将信息更新到fileState结构体
+    // (1) 失败返回NO_RESOURCE状态，表示请求的资源文件不存在
+    // (2) 如果没有访问权限，则返回FORBIDDEN_REQUEST状态
+    // (3) 如果是目录，则返回BAD_REQUEST状态，表示请求报文有误
+    // (4) 成功则返回FILE_REQUEST状态，表示获取文件成功
     if (stat(realFile, &fileState) < 0) return NO_RESOURCE;
     if (!fileState.st_mode & S_IROTH) return FORBIDDEN_REQUEST;
     if (S_ISDIR(fileState.st_mode)) return BAD_REQUEST;
@@ -494,6 +498,7 @@ bool httpConnection::write()
 {
     int temp = 0;
     if (bytesToSend == 0)
+    // 初始时没有数据需要发送
     {
         modFd(epollFd, sockfd, EPOLLIN, TRIGMode);
         init();
@@ -512,12 +517,15 @@ bool httpConnection::write()
             }
         }
 
+        // 更新已发送字节数和剩余字节数
         bytesHaveSend += temp;
         bytesToSend -= temp;
 
+        // 如果发送的字节大于等于iov[0].iov_len，则说明iov[0]中的数据已发送完
         if (bytesHaveSend >= iv[0].iov_len)
         {
             iv[0].iov_len = 0;
+            // 发送完之后，将iov[1]中的数据发送出去
             iv[1].iov_base = fileAddress + (bytesHaveSend - writeIdx);
             iv[1].iov_len = bytesToSend;
         }
@@ -527,6 +535,7 @@ bool httpConnection::write()
             iv[0].iov_len = iv[0].iov_len - bytesHaveSend;
         }
 
+        // 数据已全部发送完，根据linger决定是否关闭连接
         if (bytesToSend <= 0)
         {
             unmap();
@@ -545,9 +554,12 @@ bool httpConnection::write()
     }
 }
 
+// 
 bool httpConnection::addResponse(const char* format, ...)
 {
     if (writeIdx >= WRITE_BUFFER_SIZE) return false;
+
+    // 初始化可变参数列表
     va_list argList;
     va_start(argList, format);
     int len = vsnprintf(writeBuf + writeIdx, WRITE_BUFFER_SIZE - 1 - writeIdx, format, argList);
@@ -599,6 +611,7 @@ bool httpConnection::addContent(const char* content)
     return addResponse("%s", content);
 }
 
+// 根据不同的HTTP请求，服务器子线程调用不同的处理函数，返回不同的response
 bool httpConnection::processWrite(HTTP_CODE ret)
 {
     switch (ret)
@@ -656,6 +669,7 @@ bool httpConnection::processWrite(HTTP_CODE ret)
     return true;
 }
 
+// 服务器子线程调用process函数处理HTTP请求
 void httpConnection::process()
 {
     HTTP_CODE readRet = processRead();
